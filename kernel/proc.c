@@ -30,16 +30,6 @@ void procinit(void)
   for (p = proc; p < &proc[NPROC]; p++)
   {
     initlock(&p->lock, "proc");
-
-    // Allocate a page for the process's kernel stack.
-    // Map it high in memory, followed by an invalid
-    // guard page.
-    char *pa = kalloc();
-    if (pa == 0)
-      panic("kalloc");
-    uint64 va = KSTACK((int)(p - proc));
-    kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-    p->kstack = va;
   }
   kvminithart();
 }
@@ -143,6 +133,7 @@ found:
   uint64 va = KSTACK((int)(p - proc));
   uvmmap(p->kernelpt, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   p->kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -170,6 +161,7 @@ void proc_freekernelpt(pagetable_t kernelpt)
   }
   kfree((void *)kernelpt);
 }
+
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
@@ -181,10 +173,16 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if (p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
-  // free the kernel stack in the RAM
-  uvmunmap(p->kernelpt, p->kstack, 1, 1);
-  p->kstack = 0;
-  proc_freekernelpt(p->kernelpt);
+  if (p->kstack)
+  {
+    uvmunmap(p->kernelpt, p->kstack, 1, 1); // 删除 kstack 的 mapping，同时释放 kstack 物理内存
+    p->kstack = 0;
+  }
+  if (p->kernelpt)
+  {
+    proc_freekernelpt(p->kernelpt);
+    p->kernelpt = 0;
+  }
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -263,7 +261,10 @@ void userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
-
+  pte_t *pte_from, *pte_to;
+  pte_from = walk(p->pagetable, 0, 0);
+  pte_to = walk(p->kernelpt, 0, 1);
+  *pte_to = (*pte_from) & (~PTE_U);
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;     // user program counter
   p->trapframe->sp = PGSIZE; // user stack pointer
@@ -286,10 +287,17 @@ int growproc(int n)
   sz = p->sz;
   if (n > 0)
   {
+    // 加上PLIC限制
+    if (PGROUNDUP(sz + n) >= PLIC)
+    {
+      return -1;
+    }
     if ((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0)
     {
       return -1;
     }
+    // 复制一份到内核页表
+    u2kvmcopy(p->pagetable, p->kernelpt, sz - n, sz);
   }
   else if (n < 0)
   {
@@ -321,7 +329,8 @@ int fork(void)
     return -1;
   }
   np->sz = p->sz;
-
+  // 复制到新进程的内核页表
+  u2kvmcopy(np->pagetable, np->kernelpt, 0, np->sz);
   np->parent = p;
 
   // copy saved user registers.

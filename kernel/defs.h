@@ -150,6 +150,10 @@ void trapinithart(void);
 extern struct spinlock tickslock;
 void usertrapret(void);
 
+// vmcopyin.c
+int copyin_new(pagetable_t, char *, uint64, uint64);
+int copyinstr_new(pagetable_t, char *, uint64, uint64);
+
 // uart.c
 void uartinit(void);
 void uartintr(void);
@@ -158,6 +162,9 @@ void uartputc_sync(int);
 int uartgetc(void);
 
 // vm.c
+pte_t *
+walk(pagetable_t pagetable, uint64 va, int alloc);
+void u2kvmcopy(pagetable_t pagetable, pagetable_t kernelpt, uint64 oldsz, uint64 newsz);
 void kvminit(void);
 pagetable_t proc_kpt_init();
 void kvminithart(void);
