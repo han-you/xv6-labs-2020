@@ -478,8 +478,6 @@ int copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   {
     return -1;
   }
-<<<<<<< HEAD
-=======
 }
 
 void _vmprint(pagetable_t pagetable, int level)
@@ -508,5 +506,4 @@ void vmprint(pagetable_t pagetable)
 {
   printf("page table %p\n", pagetable);
   _vmprint(pagetable, 1);
->>>>>>> pgtbl
 }
